@@ -1,15 +1,74 @@
 #ifndef _SYS_NVM_H_
 #define _SYS_NVM_H_
 
+//These will likely change depending on exact ram stealing scheme.
 #define NVM_SIZE            (4 << 9) //4GB
 #define NVM_START           (PAGE_SIZE * 10) //10th physical page. Placeholder. Need to interact with startup code and memory management: this swath of pages needs to be mapped as in use in kernel pagetable at startup
 #define NVM_END             (NVM_SIZE + NVM_START) //4 GB of NVM
-#define NVM_PERMANENT_END   (NVM_START + PAGE_SIZE) //one page for lookup table
+#define NVM_COREMAP_END     (NVM_START + PAGE_SIZE) //one page for lookup table
+                            //This may change to be a map/bitmap of this chunk of memory divided into
+                            //some N units (min journal record size, for example)
+
+/*
+Allocates memory in NVM. "Recovering" data after crash is left
+To caller using pkpersist/retrieve interface. Returns null on failure.
+*/
+void * pkmalloc(size_t size);
+
+/*
+Free memory in NVM. Memory not accessible from a pkpersist'ed pointer
+Is considered free after a power loss or crash.
+Simple implementation. Don't abuse it.
+*/
+void pkfree(void *);
+
+/*
+Stores data pointer in a fixed-location table indexed by ID.
+Currently: id is index into an array. Better schemes or simple hashes
+may exist but are unecessary. Data cannot be "de-persisted" currently.
+Returns 1 on failure (id too big, table full), 0 on success.
+Note id needs to be hardcoded or determinsitcally generated to
+allow retrieval.
+*/
+int pkpersist(unsigned id, void *data);
+
+/*
+Retrieve the object pointer at index id in the persistent lookup table.
+*/
+void * pkretrieve(unsigned id);
+
+
+
+
+
+
 
 
 /*
+Some notes:
+"wired" memory cannot be paged out. We should maybe use this.
+May need to subvert uvm. If we let VM system handle lots of stuff
+non-persistent vm_maps will be required to access VM.
+
+Ideal world: reserve contiguous block of P_RAM. Direct address or reserve
+a pre-determined VM range for it. (This allows very straightforward hardcoding).
+
+Stuff in the kernel vm map is wired by default.
+
+
+*/
+
+
+
+/*Andrew TODO: reserve swath of real coremap. Make sure this can be done such that
+assumed location and size are identical here and there (perhaps make nvmconfig.h)
+/*
 TODO: Convincingly fake NVM with limited support for fixed-location permanent
 structures and basic memory management.
+
+
+Need super basic NVM recovery -- like, scan permanent structure table,
+reconstruct pkmalloc data structures.
 
 Reserve some swath of physical address space at startup for NVM.
 
