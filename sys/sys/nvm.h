@@ -30,7 +30,7 @@ Returns 1 on failure (id too big, table full), 0 on success.
 Note id needs to be hardcoded or determinsitcally generated to
 allow retrieval.
 */
-int pkpersist(unsigned id, void *data);
+int pkpersist(unsigned id, void *data, size_t size);
 
 /*
 Retrieve the object pointer at index id in the persistent lookup table.
