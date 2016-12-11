@@ -85,6 +85,13 @@ uvm_init(void)
 	 * kvm_start and kvm_end will be set to the area of kernel virtual
 	 * memory which is available for general use.
 	 */
+    
+    //May be able to steal some pages here.
+    //Probe what pages were claimed by hardware to advise tuning.
+    //Attempt to keep 4GB of pages from ever entering "free" queue.
+    //Can then submap them when kernel_map exists!
+    //(Need to reserve some VM in a similar way *in* kernel_map)
+    
 	uvm_page_init(&kvm_start, &kvm_end);
 
 	/*
@@ -92,6 +99,8 @@ uvm_init(void)
 	 * vm_map_entry structures that are used for "special" kernel maps
 	 * (e.g. kernel_map, kmem_map, etc...).
 	 */
+    //Note this allocates a *pool* of map entries. Need to ensure our *pool* of entries
+    //For NVM doesn't intersect this. SHould be golden if we manage that.
 	uvm_map_init();
 
 	/*
@@ -99,6 +108,10 @@ uvm_init(void)
 	 * includes setting up the kernel_map/kernel_object and the kmem_map/
 	 * kmem_object.
 	 */
+    //This is likely where we put the new submap from the special pool (or maybe just hand craft in here
+    //Make sure this is WIRED. We can't have mem getting swapped. Ruins *everything*
+    //(Technically if we drop the recovery experiment it doesn't matter. but implementing with
+    //That in mind is just bad. Also we may fix it next semester.
 
 	uvm_km_init(vm_min_kernel_address, kvm_start, kvm_end);
 

@@ -11,7 +11,7 @@
 
 /*
 Allocates memory in NVM. "Recovering" data after crash is left
-To caller using pkpersist/retrieve interface. Returns null on failure.
+To caller using pkpersist/pkretrieve/pkregister interface. Returns NULL on failure.
 */
 void * pkmalloc(size_t size);
 
@@ -20,7 +20,7 @@ Free memory in NVM. Memory not accessible from a pkpersist'ed pointer
 Is considered free after a power loss or crash.
 Simple implementation. Don't abuse it.
 */
-void pkfree(void *);
+void pkfree(void *data);
 
 /*
 Stores data pointer in a fixed-location table indexed by ID.
@@ -38,9 +38,28 @@ Retrieve the object pointer at index id in the persistent lookup table.
 void * pkretrieve(unsigned id);
 
 
+/*
+Use during pkmalloc recovery. Callers of pkpersist must implement a recovery scheme that
+registers all addresses accessible from a pkpersist-ed location. pkregister-ing each address and size
+allows pkmalloc to restore its DRAM data structures without expensive consistency schemes bottlenecking
+pkmalloc.
+ 
+This is preferable to a generic scheme since the caller of pkpersist has specialized knowledge of the
+structure they are persisting, and can likely walk the structure efficiently. Not pkregistering allows that
+memory to be re-allocated, borking the kernel.
+ 
+Returns 0 on success and 1 on failure
+*/
+int pkregister(void *data, size_t size);
 
-
-
+/* 
+Called after VM is running after a crash. Restores pkmalloc's data structures to working order.
+Requires users of pkpersist to implement recovery for their persisted structures.
+ 
+Returns 0 on success and 1 on failure (NVM besides objects directly pkpersist-ed are effectively lost).
+This should only happen if memory is exhausted or a caller recovery is incorrect.
+*/
+int pkrecover(void);
 
 
 
