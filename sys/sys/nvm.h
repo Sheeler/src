@@ -2,13 +2,19 @@
 #define _SYS_NVM_H_
 
 
+//Everything is assumed to be 64 bit because YOLO!!! :'D
+
+typdef struct pkpersist_struct {
+    size_t data_size; //4bytes
+    void *data;
+} pkpersist_struct;
 
 
 //These will likely change depending on exact ram stealing scheme.
 #define NVM_SIZE            (8 << 9) //8 GB
 #define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 48B is not a multiple of page size your system is fucked up already.
 //#define NVM_START           (4 << 9) //Beginning of 5th physical GB
-vaddr_t NVM_START;
+void * NVM_START;
 #define NVM_START_PN        (NVM_START / PAGE_SIZE) //zero-indexed cause computers
 
 #define NVM_END             (NVM_SIZE + NVM_START) //8 GB of NVM. THIS ADDRESS IS *NOT* IN NVM
@@ -21,9 +27,23 @@ vaddr_t NVM_START;
 #define NVM_COREMAP_END     (NVM_COREMAP_ADDRESS + PAGE_SIZE) //one page for lookup table
                             //This may change to be a map/bitmap of this chunk of memory divided into
                             //some N units (min journal record size, for example)
+#define MAX_COREMAP_ENTRIES ((NVM_COREMAP_SIZE - 8) / sizeof(pkpersist_struct)) //subtract one long long int.
+#ifdef NVMLOGGING
+long long unsigned nvm_access_count;
+int nvm_logging_on;
+//TYPE?
+nvm_logging_lock;
+#endif
 
-long long unsigned nvm_access_count = 0;
 
+
+//TYPE?
+pkpersist_lock;
+pkpersist_struct *pkpersist_list;
+long long unsigned *pkpersist_count;
+
+pkmalloc_lock;
+pkmalloc_struct;
 
 void nvm_init(void);
 
@@ -52,8 +72,10 @@ int pkpersist(unsigned id, void *data, size_t size);
 
 /*
 Retrieve the object pointer at index id in the persistent lookup table.
+ 
+Returned structure is pre-allocated. Do not attempt to free.
 */
-void * pkretrieve(unsigned id);
+pkpersist_struct * pkretrieve(unsigned id);
 
 
 /*
