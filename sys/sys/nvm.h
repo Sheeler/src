@@ -10,6 +10,15 @@ typdef struct pkpersist_struct {
     void *data;
 } pkpersist_struct;
 
+typedef struct pkmalloc_state_struct {
+    __mp_lock *pool_and_large_list_lock;
+    pool_map; //array of uint32_t's
+    next_free_pool_map_entry; //unsigned
+    pool_map_len; //unsigned
+    
+    
+} pkmalloc_state;
+
 
 //These will likely change depending on exact ram stealing scheme.
 #define NVM_SIZE            (8 << 9) //8 GB
@@ -44,7 +53,7 @@ long long unsigned *pkpersist_count;
 
 struct __mp_lock pkmalloc_lock;
 int pkmalloc_active;
-//pkmalloc_state_wrapper_struct;
+pkmalloc_state_struct pkmalloc_state;
 
 
 

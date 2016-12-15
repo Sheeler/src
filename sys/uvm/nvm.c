@@ -26,9 +26,10 @@ void nvm_log_atomic_increment(unsigned amount){
 
 void pkmalloc_init(void) {
     int err;
-    //stuff
-    __mp_lock_init(&pkmalloc_lock);
-    //init structure
+
+    pkmalloc_state.ppol_and_large_list_lock = malloc(sizeof(__mp_lock), M_TEMP, M_WAITOK);
+    __mp_lock_init(&pkmalloc_state.ppol_and_large_list_lock);
+
     
     err = pkrecover();
     if (err) {
@@ -78,16 +79,80 @@ void nvm_init(void) {
     
 }
 
+//optimizations: if we store distance to neighbors for a sequence of <1 block sized allocations right next to the size/taken marker, frees can be done in constant time! Leaves only the "scan for space" malloc as slow op.
+
+//ASSUMES nvm is contiguous in kernel vm. Otherwise everything is slow and sucks.
+
+//figure out how to handle free blocks of size one vs taken blocks of size 1 now!
 void * pkmalloc(size_t size) {
     if (pkmalloc_active != 1) {
         return NULL;
     }
     
+    //ummmm yeah. we're storing allocation type and size info in the same number.
+    uint32_t takenMask = 1 << 31; //0b1000000.....
+    uint32_t freeMask = ~takenMask;
     
-    //DON'T FORGET TO LOG AND LOCK
-    //TODO
-    
-    //hey look! doesn't ever touch nvm!!
+    //Figure out allocation type:
+    if (size >= PKMALLOC_POOL_SIZE) {
+        
+        void *res = NULL;
+        
+        //lock top-level lock
+        uint32_t entries_to_reserve = (size / PKMALLOC_POOL_SIZE) + ((size % PKMALLOC_POOL_SIZE == 0) ? 0 : 1);
+        __mp_lock(pkmalloc_state.pool_and_large_list_lock);
+        
+        //pool allocation. Find next free chunk of pool list. -- this is similar at each level!
+        if entries_to_reserve <= (pkmalloc_state.pool_map_len - pkmalloc_state.next_free_pool_map_entry) {
+            pkmalloc_state.pool_map[pkmalloc_state.next_free_pool_map_entry] = entries_to_reserve | takenMask;
+            res = pkmalloc_state.next_free_pool_map_entry * PKMALLOC_POOL_SIZE + NVM_COREMAP_END;
+            pkmalloc_state.next_free_pool_map_entry += entries_to_reserve; //once it's as large as map len, only scanning succeeds.
+            
+            //we don't worry about setting the new entry to be the proper free amount because we know everything to end of array is free.
+        }
+        
+        //if no next chunk, scan for open space.
+        else {
+            int cur_index = 0;
+            //assumes: free space is mapped as "[free_entries, 0, 0....., taken_entries, 0,...,];
+            //this means the [free_entries, 0,... taken, 0..., free, 0...] case of free is slow but whatevs
+            while (cur_index <= pkmalloc_state.pool_map_len - entries_to_reserve) {
+                //enough free space and not taken
+                if ((pkmalloc_state.pool_map[cur_index] & freeMask) >= entries_to_reserve && !(pkmalloc_state.pool_map[cur_index] & takenMask)) {
+                    
+                    //Can take. Make new free marker, then update location as taken
+                    if (entries_to_reserve != (freeMask & pkmalloc_state_pool[cur_index])) {
+                        //add free entry after allocation
+                        int index_to_edit = cur_index + entries_to_reserve;
+                        pkmalloc_state.pool_map[index_to_edit] = (pkmalloc_state.pool_map[cur_index] - entries_to_reserve) | freeMask;
+                    }
+                    pkmalloc_state.pool_map[cur_index] = entries_to_reserve | takenMask;
+                    res = cur_index * PKMALLOC_POOL_SIZE + NVM_COREMAP_END;
+                    break;
+                }
+                //increment cur_index:
+                cur_index += (pkmalloc_state.pool_map[cur_index] & freeMask);
+            }
+        }
+        
+        //unlock top-level lock
+        __mp_unlock(pkmalloc_state.pool_and_large_list_lock);
+        
+        return res;
+    }
+    else if (size >= PKMALLOC_LARGE_SIZE) {
+        //find current pool: if exists, acquire lock and check for space.
+        
+        
+        //if none, alloc pool (acquire/release top level lock)
+        //if full, release lock, (acquire lock when entering pool, release when leaving) scan past pools.
+            //If no space, alloc pool (or fail) (acquire/release top level lock)
+        
+        
+        //Once: pool with space found / location found. mark location as taken
+        
+        //Return pointer to location
+    }
 }
 
 void pkfree(void *data) {
