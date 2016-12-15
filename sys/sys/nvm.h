@@ -85,7 +85,11 @@ Free memory in NVM. Memory not accessible from a pkpersist'ed pointer
 Is considered free after a power loss or crash.
 Simple implementation. Don't abuse it.
 */
-void pkfree(void *data);
+//For things under "PKMALLOC_LARGE_SIZE"
+void pkfree_small(void *data);
+
+//For things "PKMALLOC_LARGE_SIZE" to "PKMALLOC_POOL_SIZE" (exclusive of upper bound)
+void pkfree_medium(void *data);
 
 //Call this to free something you allocated of size "PKMALLOC_POOL_SIZE" or larger
 //Requiring this of caller vastly simplifies free logic.

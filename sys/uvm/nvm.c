@@ -114,6 +114,8 @@ void nvm_init(void) {
 //ASSUMES nvm is contiguous in kernel vm. Otherwise everything is slow and sucks.
 
 //figure out how to handle free blocks of size one vs taken blocks of size 1 now!
+
+//Coarse locking scheme so implementation stays sane multithreaded
 void * pkmalloc(size_t size) {
     if (pkmalloc_active != 1) {
         return NULL;
@@ -122,11 +124,12 @@ void * pkmalloc(size_t size) {
     //ummmm yeah. we're storing allocation type and size info in the same number.
     uint32_t takenMask = 1 << 31; //0b1000000.....
     uint32_t freeMask = ~takenMask;
+    void *res = NULL;
     
     //Figure out allocation type:
     if (size >= PKMALLOC_POOL_SIZE) {
         
-        void *res = NULL;
+        
         
         //lock top-level lock
         uint32_t entries_to_reserve = (size / PKMALLOC_POOL_SIZE) + ((size % PKMALLOC_POOL_SIZE == 0) ? 0 : 1);
@@ -168,24 +171,54 @@ void * pkmalloc(size_t size) {
         //unlock top-level lock
         __mp_unlock(pkmalloc_state.pool_and_large_list_lock);
         
-        return res;
     }
     else if (size >= PKMALLOC_LARGE_SIZE) {
         
+        uint32_t entries_to_reserve = (size / PKMALLOC_LARGE_SIZE) + ((size % PKMALLOC_LARGE_SIZE == 0) ? 0 : 1);
+        __mp_lock(pkmalloc_state.large_pools_lock);
+        
+        
+        
+        
+        //implementation
+        
+        
+        
+        
+        
+        __mp_unlock(pkmalloc_state.large_pools_lock);
     }
     
     else { //small allocation. Exactly the same as PKMALLOC_LARGE_SIZE, but different locks and arrays.
+        uint32_t entries_to_reserve = (size / PKMALLOC_SMALL_SIZE) + ((size % PKMALLOC_SMALL_SIZE == 0) ? 0 : 1);
+        __mp_lock(pkmalloc_state.small_pools_lock);
         
+        
+        
+        //implementation
+        
+        
+        
+        __mp_unlock(pkmalloc_state.small_pools_lock);
     }
+    
+    return res;
 }
 
-void pkfree(void *data) {
+
+//For things under "pkmalloc_large_size"
+void pkfree_small(void *data) {
     if (pkmalloc_active != 1) {
         return
     }
     //DON'T FORGET TO LOG AND LOCK
     
     //TODO
+}
+
+//For things "pkmalloc_large_size" to "pkmalloc_pool_size" (exclusive of upper bound)
+void pkfree_medium(void * data) {
+    
 }
 
 //use when freeing things "pkmalloc_pool_size" or larger
