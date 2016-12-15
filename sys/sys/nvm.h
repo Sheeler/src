@@ -38,13 +38,13 @@ void nvm_log_atomic_increment(unsigned amount);
 
 
 //WE ASSUME #ifdef MULTIPROCESSOR
-//TYPE?
 struct __mp_lock pkpersist_lock;
 pkpersist_struct *pkpersist_list;
 long long unsigned *pkpersist_count;
 
 struct __mp_lock pkmalloc_lock;
-//pkmalloc_struct;
+int pkmalloc_active;
+//pkmalloc_state_wrapper_struct;
 
 
 

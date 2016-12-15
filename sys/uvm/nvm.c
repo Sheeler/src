@@ -1,9 +1,18 @@
 #include <sys/nvm.h>
 #include <sys/malloc.h>
+//#include <arch/amd64/include/cpufunc.h> //This probably won't work. How you fence is machine dependent though!!! Need to figure out how to expose the mfence functionality of current processor.
 
-//TODO: PKMALLOC. PKFREE. MAKING SURE .H AND .C AGREE. PROOFREAD. FIGURE OUT WHAT ELSE IS NEEDED TO INCORPORATE INTO PROJECT.
+//TODO: PKMALLOC. PKFREE. MAKE SURE H AND C AGREE. PROOFREAD.
+//Write about it. FINISH THESE BY NOON.
 
 
+//Figure out how to build, then figure out experiment. FINISH BY BEFORE 5
+//leaves: 7 hours for debug, rewrite, running experiment.
+
+
+
+//TODO: we may want to add another check "should log" -- bascially checks if proc
+//is part of experiment.
 #ifdef NVMLOGGING
 //Handles "is logging dynamically on logic" as well
 void nvm_log_atomic_increment(unsigned amount){
@@ -64,14 +73,27 @@ void nvm_init(void) {
     
     //calls pkrecover, which calls pkretrieve and pkregister
     pkmalloc_init();
+    mfence();// (ensure people can't pkmalloc until persist table is indeend set up)
+    pkmalloc_active = 1;
+    
 }
 
 void * pkmalloc(size_t size) {
+    if (pkmalloc_active != 1) {
+        return NULL;
+    }
+    
+    
     //DON'T FORGET TO LOG AND LOCK
     //TODO
+    
+    //hey look! doesn't ever touch nvm!!
 }
 
 void pkfree(void *data) {
+    if (pkmalloc_active != 1) {
+        return
+    }
     //DON'T FORGET TO LOG AND LOCK
     
     //TODO
@@ -95,9 +117,10 @@ int pkpersist(unsigned id, void *data, size_t size) {
 #ifdef NVMLOGGING
         nvm_log_atomic_increment(3);
 #endif
-        *pkpersist_count += 1;
         pkpersist_list[id].data = data;
         pkpersist_list[id].size = size;
+        mfence();
+        *pkpersist_count += 1;
         
     }
     __mp_lock_release(&pkpersist_lock);
