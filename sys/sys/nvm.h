@@ -11,13 +11,28 @@ typdef struct pkpersist_struct {
 } pkpersist_struct;
 
 typedef struct pkmalloc_state_struct {
+    
+    //pool list stuff
     __mp_lock *pool_and_large_list_lock;
-    pool_map; //array of uint32_t's
-    next_free_pool_map_entry; //unsigned
-    pool_map_len; //unsigned
+    uint32_t *pool_map; //array of uint32_t's
+    unsigned next_free_pool_map_entry;
+    unsigned pool_map_len; //=pool_num
+    unsigned pool_num;
+    
+    //large alloc stuff
+    uint32_t *large_pools; //array of uint32_t's
+    unsigned num_large_pools;
+    __mp_lock large_pools_lock;
+    
+    //small alloc stuff
+    uint32_t *small_pools; //array of uint32t's
+    unsigned num_small_pools;
+    __mp_lock small_pools_lock;
     
     
-} pkmalloc_state;
+    
+    
+} pkmalloc_state_struct;
 
 
 //These will likely change depending on exact ram stealing scheme.
@@ -71,6 +86,10 @@ Is considered free after a power loss or crash.
 Simple implementation. Don't abuse it.
 */
 void pkfree(void *data);
+
+//Call this to free something you allocated of size "PKMALLOC_POOL_SIZE" or larger
+//Requiring this of caller vastly simplifies free logic.
+void pkfree_large(void *data);
 
 /*
 Stores data pointer in a fixed-location table indexed by ID.

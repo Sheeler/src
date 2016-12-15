@@ -31,9 +31,35 @@ void nvm_log_atomic_increment(unsigned amount){
 void pkmalloc_init(void) {
     int err;
 
-    pkmalloc_state.ppol_and_large_list_lock = malloc(sizeof(__mp_lock), M_TEMP, M_WAITOK);
-    __mp_lock_init(&pkmalloc_state.ppol_and_large_list_lock);
-
+    unsigned pool_num = (NVM_SIZE - NVM_COREMAP_SIZE) / PKMALLOC_POOL_SIZE;
+    pkmalloc_state =
+    //pool list stuff
+    pkmalloc_state.pool_and_large_list_lock = malloc(sizeof(__mp_lock), M_TEMP, M_WAITOK);
+    __mp_lock_init(&pkmalloc_state.pool_and_large_list_lock);
+    
+    pkmalloc_state.pool_map = malloc(4 * pool_num, M_TEMP, M_WAITOK);
+    if (!pkmalloc_state.pool_map) {
+        panic("could not alloc pool map!\n");
+    }
+    pkmalloc_state.pool_map_len = pool_num;
+    pkmalloc_state.next_Free_pool_map_entry = 0;
+    
+    //large alloc stuff
+    pkmalloc_state.large_pools = malloc(4 * pool_num, M_TEMP, M_WAITOK);
+    if (!pkmalloc_state.large_pools) {
+        panic("could not alloc large pools list! \n");
+    }
+    __mp_lock_init(&pkmalloc_state.large_pools_lock);
+    pkmalloc_state.num_large_pools = 0;
+    
+    
+    //small alloc stuff
+    pkmalloc_state.small_pools = malloc(4 * pool_num, M_TEMP, M_WAITOK);
+    if (!pkmalloc_state.small_pools) {
+        panic("could not alloc small pools list! \n");
+    }
+    __mp_lock_init(&pkmalloc_state.small_pools_lock);
+    pkmalloc_state.num_small_pools = 0;
     
     err = pkrecover();
     if (err) {
@@ -145,18 +171,9 @@ void * pkmalloc(size_t size) {
         return res;
     }
     else if (size >= PKMALLOC_LARGE_SIZE) {
-        //find current pool: if exists, acquire lock and check for space.
         
-        
-        //if none, alloc pool (acquire/release top level lock)
-        //if full, release lock, (acquire lock when entering pool, release when leaving) scan past pools.
-            //If no space, alloc pool (or fail) (acquire/release top level lock)
-        
-        
-        //Once: pool with space found / location found. mark location as taken
-        
-        //Return pointer to location
     }
+    
     else { //small allocation. Exactly the same as PKMALLOC_LARGE_SIZE, but different locks and arrays.
         
     }
@@ -171,6 +188,10 @@ void pkfree(void *data) {
     //TODO
 }
 
+//use when freeing things "pkmalloc_pool_size" or larger
+void pkfree_large(void * data) {
+    
+}
 int pkpersist(unsigned id, void *data, size_t size) {
 
     int err = 0;
