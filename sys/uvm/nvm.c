@@ -11,6 +11,10 @@
 
 
 
+#define PKMALLOC_POOL_SIZE  (10 * (1 << 20)) //10 MB
+#define PKMALLOC_LARGE_SIZE (1 << 9) //1kB
+#define PKMALLOC_SMALL_SIZE (64) // 64 Bytes
+
 //TODO: we may want to add another check "should log" -- bascially checks if proc
 //is part of experiment.
 #ifdef NVMLOGGING
@@ -152,6 +156,9 @@ void * pkmalloc(size_t size) {
         //Once: pool with space found / location found. mark location as taken
         
         //Return pointer to location
+    }
+    else { //small allocation. Exactly the same as PKMALLOC_LARGE_SIZE, but different locks and arrays.
+        
     }
 }
 

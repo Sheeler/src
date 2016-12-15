@@ -21,7 +21,7 @@ typedef struct pkmalloc_state_struct {
 
 
 //These will likely change depending on exact ram stealing scheme.
-#define NVM_SIZE            (8 << 9) //8 GB
+#define NVM_SIZE            (8 * (1 << 30)) //8 GB
 #define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 48B is not a multiple of page size your system is fucked up already.
 //#define NVM_START           (4 << 9) //Beginning of 5th physical GB
 void * NVM_START;
