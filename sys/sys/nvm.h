@@ -1,11 +1,12 @@
 #ifndef _SYS_NVM_H_
 #define _SYS_NVM_H_
 
+#include <sys/mp_lock.h>
 
 //Everything is assumed to be 64 bit because YOLO!!! :'D
 
 typdef struct pkpersist_struct {
-    size_t data_size; //4bytes
+    size_t data_size; //4bytes or 8bytes.
     void *data;
 } pkpersist_struct;
 
@@ -27,23 +28,25 @@ void * NVM_START;
 #define NVM_COREMAP_END     (NVM_COREMAP_ADDRESS + PAGE_SIZE) //one page for lookup table
                             //This may change to be a map/bitmap of this chunk of memory divided into
                             //some N units (min journal record size, for example)
-#define MAX_COREMAP_ENTRIES ((NVM_COREMAP_SIZE - 8) / sizeof(pkpersist_struct)) //subtract one long long int.
+#define MAX_COREMAP_ENTRIES ((NVM_COREMAP_SIZE - sizeof(long long unsigned)) / sizeof(pkpersist_struct)) //subtract one long long int.
 #ifdef NVMLOGGING
-long long unsigned nvm_access_count;
+long long unsigned * nvm_access_count;
 int nvm_logging_on;
-//TYPE?
-nvm_logging_lock;
+struct __mp_lock nvm_log_lock;
+void nvm_log_atomic_increment(unsigned amount);
 #endif
 
 
-
+//WE ASSUME #ifdef MULTIPROCESSOR
 //TYPE?
-pkpersist_lock;
+struct __mp_lock pkpersist_lock;
 pkpersist_struct *pkpersist_list;
 long long unsigned *pkpersist_count;
 
-pkmalloc_lock;
-pkmalloc_struct;
+struct __mp_lock pkmalloc_lock;
+//pkmalloc_struct;
+
+
 
 void nvm_init(void);
 
