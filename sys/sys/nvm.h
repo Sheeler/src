@@ -7,7 +7,8 @@
 //These will likely change depending on exact ram stealing scheme.
 #define NVM_SIZE            (8 << 9) //8 GB
 #define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 48B is not a multiple of page size your system is fucked up already.
-#define NVM_START           (4 << 9) //Beginning of 5th physical GB
+//#define NVM_START           (4 << 9) //Beginning of 5th physical GB
+vaddr_t NVM_START;
 #define NVM_START_PN        (NVM_START / PAGE_SIZE) //zero-indexed cause computers
 
 #define NVM_END             (NVM_SIZE + NVM_START) //8 GB of NVM. THIS ADDRESS IS *NOT* IN NVM
@@ -20,6 +21,11 @@
 #define NVM_COREMAP_END     (NVM_COREMAP_ADDRESS + PAGE_SIZE) //one page for lookup table
                             //This may change to be a map/bitmap of this chunk of memory divided into
                             //some N units (min journal record size, for example)
+
+long long unsigned nvm_access_count = 0;
+
+
+void nvm_init(void);
 
 /*
 Allocates memory in NVM. "Recovering" data after crash is left

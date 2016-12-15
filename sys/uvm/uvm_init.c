@@ -43,6 +43,7 @@
 
 #include <uvm/uvm.h>
 #include <uvm/uvm_addr.h>
+#include <sys/nvm.h>
 
 /*
  * struct uvm: we store all global vars in this structure to make them
@@ -131,7 +132,14 @@ uvm_init(void)
 	 * kernel memory allocator (malloc) can be used.
 	 */
 	kmeminit();
-
+    
+    /*
+     * step 6.25: init kernel nvm. after this call, pkmalloc can be
+     * used. **Change this once true stealing is implemented**
+     */
+    
+    nvminit();
+    
 	/*
 	 * step 6.5: init the dma allocator, which is backed by pools.
 	 */
