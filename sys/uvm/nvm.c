@@ -135,7 +135,7 @@ void * pkmalloc(size_t size) {
         
         //lock top-level lock
         uint32_t entries_to_reserve = (size / PKMALLOC_POOL_SIZE) + ((size % PKMALLOC_POOL_SIZE == 0) ? 0 : 1);
-        __mp_lock(pkmalloc_state.pool_and_large_list_lock);
+        __mp_lock(&pkmalloc_state.pool_and_large_list_lock);
         
         //pool allocation. Find next free chunk of pool list. -- this is similar at each level!
         if entries_to_reserve <= (pkmalloc_state.pool_map_len - pkmalloc_state.next_free_pool_map_entry) {
@@ -171,13 +171,13 @@ void * pkmalloc(size_t size) {
         }
         
         //unlock top-level lock
-        __mp_unlock(pkmalloc_state.pool_and_large_list_lock);
+        __mp_unlock(&pkmalloc_state.pool_and_large_list_lock);
         
     }
     else if (size >= PKMALLOC_LARGE_SIZE) {
         
         uint32_t entries_to_reserve = (size / PKMALLOC_LARGE_SIZE) + ((size % PKMALLOC_LARGE_SIZE == 0) ? 0 : 1);
-        __mp_lock(pkmalloc_state.large_pools_lock);
+        __mp_lock(&pkmalloc_state.large_pools_lock);
         
         uint32_t large_subpool_entry_count = (PKMALLOC_POOL_SIZE / PKMALLOC_LARGE_SIZE);
         
@@ -249,12 +249,12 @@ void * pkmalloc(size_t size) {
             }
         }
         
-        __mp_unlock(pkmalloc_state.large_pools_lock);
+        __mp_unlock(&pkmalloc_state.large_pools_lock);
     }
     
     else { //small allocation. Exactly the same as PKMALLOC_LARGE_SIZE, but different locks and arrays.
         uint32_t entries_to_reserve = (size / PKMALLOC_SMALL_SIZE) + ((size % PKMALLOC_SMALL_SIZE == 0) ? 0 : 1);
-        __mp_lock(pkmalloc_state.small_pools_lock);
+        __mp_lock(&pkmalloc_state.small_pools_lock);
         
         uint32_t small_subpool_entry_count = (PKMALLOC_POOL_SIZE / PKMALLOC_SMALL_SIZE);
         
@@ -326,12 +326,16 @@ void * pkmalloc(size_t size) {
             }
         }
         
-        __mp_unlock(pkmalloc_state.small_pools_lock);
+        __mp_unlock(&pkmalloc_state.small_pools_lock);
     }
     
     return res;
 }
 
+
+//Cases: beginning of list (no left traverse)
+//       between two allocations (left and right traverse)
+//       Most recent allocation in incomplete pool (can stack with first case)
 
 //For things under "pkmalloc_large_size"
 void pkfree_small(void *data) {
@@ -339,6 +343,7 @@ void pkfree_small(void *data) {
         return
     }
     //Grab "small" lock
+    __mp_lock(&pkmalloc_state.small_pools_lock);
     
     //arithmetic to calculate pool number
     
@@ -349,6 +354,8 @@ void pkfree_small(void *data) {
     //join metadatas
         //involves a backwards scan
     //release "small" lock
+    
+    __mp_unlock(&pkmalloc_state.small_pools_lock);
 }
 
 //For things "pkmalloc_large_size" to "pkmalloc_pool_size" (exclusive of upper bound)
@@ -407,7 +414,7 @@ int pkpersist(unsigned id, void *data, size_t size) {
         *pkpersist_count += 1;
         
     }
-    __mp_lock_release(&pkpersist_lock);
+    __mp_unlock(&pkpersist_lock);
     return err;
 }
 //Does not lock -- assumes somewhat sane, single threaded recovery.
