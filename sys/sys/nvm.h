@@ -10,6 +10,11 @@ typdef struct pkpersist_struct {
     void *data;
 } pkpersist_struct;
 
+typedef struct subpool {
+    uint32_t pool_number;
+    uint32_t *subpool_map;
+} subpool;
+
 typedef struct pkmalloc_state_struct {
     
     //pool list stuff
@@ -20,24 +25,23 @@ typedef struct pkmalloc_state_struct {
     unsigned pool_num;
     
     //large alloc stuff
-    uint32_t *large_pools; //array of uint32_t's
+    subpool *large_pools; //array of subpools
     unsigned num_large_pools;
     __mp_lock large_pools_lock;
+    unsigned next_free_large_entry;
     
     //small alloc stuff
-    uint32_t *small_pools; //array of uint32t's
+    subpool *small_pools; //array of subpools
     unsigned num_small_pools;
     __mp_lock small_pools_lock;
-    
-    
-    
+    unsigned next_free_small_entry;
     
 } pkmalloc_state_struct;
 
 
 //These will likely change depending on exact ram stealing scheme.
 #define NVM_SIZE            (8 * (1 << 30)) //8 GB
-#define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 48B is not a multiple of page size your system is fucked up already.
+#define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 8GB is not a multiple of page size your system is fucked up already.
 //#define NVM_START           (4 << 9) //Beginning of 5th physical GB
 void * NVM_START;
 #define NVM_START_PN        (NVM_START / PAGE_SIZE) //zero-indexed cause computers
