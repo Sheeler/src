@@ -14,6 +14,7 @@
 #define PKMALLOC_POOL_SIZE  (10 * (1 << 20)) //10 MB
 #define PKMALLOC_LARGE_SIZE (1 << 9) //1kB
 #define PKMALLOC_SMALL_SIZE (64) // 64 Bytes
+#define PKMALLOC_POOL_NUM   (NVM_SIZE - NVM_COREMAP_SIZE) / PKMALLOC_POOL_SIZE)
 
 //TODO: we may want to add another check "should log" -- bascially checks if proc
 //is part of experiment.
@@ -31,21 +32,19 @@ void nvm_log_atomic_increment(unsigned amount){
 void pkmalloc_init(void) {
     int err;
 
-    unsigned pool_num = (NVM_SIZE - NVM_COREMAP_SIZE) / PKMALLOC_POOL_SIZE;
     pkmalloc_state =
     //pool list stuff
-    pkmalloc_state.pool_and_large_list_lock = malloc(sizeof(__mp_lock), M_TEMP, M_WAITOK);
     __mp_lock_init(&pkmalloc_state.pool_and_large_list_lock);
     
-    pkmalloc_state.pool_map = malloc(4 * pool_num, M_TEMP, M_WAITOK);
+    pkmalloc_state.pool_map = malloc(4 * PKMALLOC_POOL_NUM, M_TEMP, M_WAITOK);
     if (!pkmalloc_state.pool_map) {
         panic("could not alloc pool map!\n");
     }
-    pkmalloc_state.pool_map_len = pool_num;
+    pkmalloc_state.pool_map_len = PKMALLOC_POOL_NUM;
     pkmalloc_state.next_Free_pool_map_entry = 0;
     
     //large alloc stuff
-    pkmalloc_state.large_pools = malloc(sizeof(subpool) * pool_num, M_TEMP, M_WAITOK);
+    pkmalloc_state.large_pools = malloc(sizeof(subpool) * PKMALLOC_POOL_NUM, M_TEMP, M_WAITOK);
     if (!pkmalloc_state.large_pools) {
         panic("could not alloc large pools list! \n");
     }
@@ -55,7 +54,7 @@ void pkmalloc_init(void) {
     
     
     //small alloc stuff
-    pkmalloc_state.small_pools = malloc(sizeof(subpool) * pool_num, M_TEMP, M_WAITOK);
+    pkmalloc_state.small_pools = malloc(sizeof(subpool) * PKMALLOC_POOL_NUM, M_TEMP, M_WAITOK);
     if (!pkmalloc_state.small_pools) {
         panic("could not alloc small pools list! \n");
     }
@@ -119,6 +118,8 @@ void nvm_init(void) {
 //figure out how to handle free blocks of size one vs taken blocks of size 1 now!
 
 //Coarse locking scheme so implementation stays sane multithreaded
+
+//TODO: make sure "block numbers" are = to index into top level pool map:
 void * pkmalloc(size_t size) {
     if (pkmalloc_active != 1) {
         return NULL;
@@ -131,8 +132,6 @@ void * pkmalloc(size_t size) {
     
     //Figure out allocation type:
     if (size >= PKMALLOC_POOL_SIZE) {
-        
-        
         
         //lock top-level lock
         uint32_t entries_to_reserve = (size / PKMALLOC_POOL_SIZE) + ((size % PKMALLOC_POOL_SIZE == 0) ? 0 : 1);
@@ -224,18 +223,30 @@ void * pkmalloc(size_t size) {
             }
             
         }
-        
+        //todo: check that this copy paste logic is fine
         if (res == NULL) { //checks that we didn't succeed previous step
             
-            //Otherwise: acquire top-level lock
+            //Attempt to reserve a pool at top level: (won't be freed ever)
+            res = pkmalloc(PKMALLOC_POOL_SIZE);
             
-            //if there are no pools, too bad, fail.
-            
-            //otherwise grab pool (and alloc map, and add to subpool_map list)
-            
-            //release top level lock
-            
-            //there's enoug space, great
+            //there's enough space, great
+            //Res is correct value
+            //check all this logic
+            if (res != NULL) {
+                //GOTTA ALLOCATE SOME STRUCTURES.
+                //FIND
+                
+                //reverse engineer block num:
+                uint32_t pool_num = (((uint32) res) - NVM_COREMAP_END) / PKMALLOC_POOL_SIZE;
+                pkmalloc_state.large_pools[pkmalloc_state.num_large_pools].pool_number = pool_num;
+                pkmalloc_state.large_pools[pkmalloc_state.num_large_pools].subpool_map = malloc(large_subpool_entry_count * 4, M_TEMP, M_WAITOK);
+                if (!pkmalloc_state.large_pools[num_large_pools].subpool_map) {
+                    panic("couldn't alloc a large subpool map \n");
+                }
+                pkmalloc_state.num_large_pools += 1;
+                pkmalloc_state.next_free_large_entry = entries_to_reserve;
+                
+            }
         }
         
         __mp_unlock(pkmalloc_state.large_pools_lock);
@@ -292,17 +303,28 @@ void * pkmalloc(size_t size) {
         }
         if (res == NULL) { //checks that we didn't succeed previous step
         
-        //Otherwise: acquire top-level lock
+            //Attempt to reserve a pool at top level: (won't be freed ever)
+            res = pkmalloc(PKMALLOC_POOL_SIZE);
         
-        //if there are no pools, too bad, fail.
-        
-        //otherwise grab pool (and alloc map, and add to subpool_map list)
-        
-        //release top level lock
-        
-        //there's enoug space, great
+            //there's enough space, great
+            //Res is correct value
+            //check all this logic
+            if (res != NULL) {
+                //GOTTA ALLOCATE SOME STRUCTURES.
+                //FIND
+                
+                //reverse engineer block num:
+                uint32_t pool_num = (((uint32) res) - NVM_COREMAP_END) / PKMALLOC_POOL_SIZE;
+                pkmalloc_state.small_pools[pkmalloc_state.num_small_pools].pool_number = pool_num;
+                pkmalloc_state.small_pools[pkmalloc_state.num_small_pools].subpool_map = malloc(small_subpool_entry_count * 4, M_TEMP, M_WAITOK);
+                if (!pkmalloc_state.small_pools[num_small_pools].subpool_map) {
+                    panic("couldn't alloc a small subpool map \n");
+                }
+                pkmalloc_state.num_small_pools += 1;
+                pkmalloc_state.next_free_small_entry = entries_to_reserve;
+                
+            }
         }
-        
         
         __mp_unlock(pkmalloc_state.small_pools_lock);
     }
