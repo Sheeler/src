@@ -18,7 +18,7 @@ typedef struct subpool {
 typedef struct pkmalloc_state_struct {
     
     //pool list stuff
-    __mp_lock pool_and_large_list_lock;
+    struct __mp_lock pool_and_large_list_lock;
     uint32_t *pool_map; //array of uint32_t's
     unsigned next_free_pool_map_entry;
     unsigned pool_map_len; //=pool_num
@@ -27,13 +27,13 @@ typedef struct pkmalloc_state_struct {
     //large alloc stuff
     subpool *large_pools; //array of subpools
     unsigned num_large_pools;
-    __mp_lock large_pools_lock;
+    struct __mp_lock large_pools_lock;
     unsigned next_free_large_entry;
     
     //small alloc stuff
     subpool *small_pools; //array of subpools
     unsigned num_small_pools;
-    __mp_lock small_pools_lock;
+    struct __mp_lock small_pools_lock;
     unsigned next_free_small_entry;
     
 } pkmalloc_state_struct;

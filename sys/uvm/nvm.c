@@ -9,9 +9,12 @@
 //Figure out how to build, then figure out experiment. FINISH BY BEFORE 5
 //leaves: 7 hours for debug, rewrite, running experiment.
 
+//TODO: check that all locks do in fact get init-ed
+
+//TODO: LONG LONG UNSIGNED to uint64_t
 
 
-#define PKMALLOC_POOL_SIZE  (10 * (1 << 20)) //10 MB
+#define PKMALLOC_POOL_SIZE  (1 << 20) //1 MB
 #define PKMALLOC_LARGE_SIZE (1 << 9) //1kB
 #define PKMALLOC_SMALL_SIZE (64) // 64 Bytes
 #define PKMALLOC_POOL_NUM   (NVM_SIZE - NVM_COREMAP_SIZE) / PKMALLOC_POOL_SIZE)
@@ -32,7 +35,6 @@ void nvm_log_atomic_increment(unsigned amount){
 void pkmalloc_init(void) {
     int err;
 
-    pkmalloc_state =
     //pool list stuff
     __mp_lock_init(&pkmalloc_state.pool_and_large_list_lock);
     
@@ -143,7 +145,10 @@ void * pkmalloc(size_t size) {
             res = pkmalloc_state.next_free_pool_map_entry * PKMALLOC_POOL_SIZE + NVM_COREMAP_END;
             pkmalloc_state.next_free_pool_map_entry += entries_to_reserve; //once it's as large as map len, only scanning succeeds.
             
-            //we don't worry about setting the new entry to be the proper free amount because we know everything to end of array is free.
+            //we set the new entry with proper free amount to make "free" easier
+            if (pkmalloc_state.next_free_pool_map_entry < pkmalloc_state.pool_map_len) {
+                pkmalloc_state->pool_map[pkmalloc_state.next_free_pool_map_entry] = (pkmalloc_state.pool_map_len - pkmalloc_state.next_free_pool_map_entry) | freeMask;
+            }
         }
         
         //if no next chunk, scan for open space.
@@ -193,7 +198,10 @@ void * pkmalloc(size_t size) {
                 res = cur_subpool->pool_number * PKMALLOC_POOL_SIZE + pkmalloc_state.next_free_large_entry * PKMALLOC_LARGE_SIZE + NVM_COREMAP_END;
                 pkmalloc_state.next_free_large_entry += entries_to_reserve; //once it's as large as map len, only scanning succeeds.
                 
-                //we don't worry about setting the new entry to be the proper free amount because we know everything to end of array is free.
+                //we set the new entry with proper free amount to make "free" easier
+                if (pkmalloc_state.next_free_large_entry < large_subpool_entry_count) {
+                    cur_subpool->subpool_map[pkmalloc_state.next_free_large_entry] = (large_pool_entry_count - pkmalloc_state.next_free_large_entry) | freeMask;
+                }
             }
             //Otherwise, scan all "large" pools
             //per pool
@@ -243,8 +251,15 @@ void * pkmalloc(size_t size) {
                 if (!pkmalloc_state.large_pools[num_large_pools].subpool_map) {
                     panic("couldn't alloc a large subpool map \n");
                 }
+                
+                //set free entry
+                //we set the new entry with proper free amount to make "free" easier
+                pkmalloc_state.large_pools[pkmalloc_state.num_large_pools].subpool_map[entries_to_reserve] = (large_pool_entry_count - entries_to_reserve) | freeMask;
+                
+                
                 pkmalloc_state.num_large_pools += 1;
                 pkmalloc_state.next_free_large_entry = entries_to_reserve;
+                
                 
             }
         }
@@ -270,7 +285,10 @@ void * pkmalloc(size_t size) {
                 res = cur_subpool->pool_number * PKMALLOC_POOL_SIZE + pkmalloc_state.next_free_small_entry * PKMALLOC_SMALL_SIZE + NVM_COREMAP_END;
                 pkmalloc_state.next_free_small_entry += entries_to_reserve; //once it's as large as map len, only scanning succeeds.
                 
-                //we don't worry about setting the new entry to be the proper free amount because we know everything to end of array is free.
+                //we set the new entry with proper free amount to make "free" easier
+                if (pkmalloc_state.next_free_small_entry < small_subpool_entry_count) {
+                    cur_subpool->subpool_map[pkmalloc_state.next_free_small_entry] = (small_pool_entry_count - pkmalloc_state.next_free_small_entry) | freeMask;
+                }
             }
         
             //Otherwise, scan all "small" pools
@@ -320,6 +338,13 @@ void * pkmalloc(size_t size) {
                 if (!pkmalloc_state.small_pools[num_small_pools].subpool_map) {
                     panic("couldn't alloc a small subpool map \n");
                 }
+                
+                
+                //set free entry
+                //we set the new entry with proper free amount to make "free" easier
+                pkmalloc_state.small_pools[pkmalloc_state.num_small_pools].subpool_map[entries_to_reserve] = (small_pool_entry_count - entries_to_reserve) | freeMask;
+                
+                
                 pkmalloc_state.num_small_pools += 1;
                 pkmalloc_state.next_free_small_entry = entries_to_reserve;
                 
@@ -339,56 +364,275 @@ void * pkmalloc(size_t size) {
 
 //For things under "pkmalloc_large_size"
 void pkfree_small(void *data) {
+    
+    
+    uint32_t takenMask = 1 << 31; //0b1000000.....
+    uint32_t freeMask = ~takenMask;
+    
+    uint32_t small_subpool_entry_count = (PKMALLOC_POOL_SIZE / PKMALLOC_SMALL_SIZE);
+    uint32_t pool_small_index = 0;
+
+    
     if (pkmalloc_active != 1) {
-        return
+        return;
     }
     //Grab "small" lock
     __mp_lock(&pkmalloc_state.small_pools_lock);
     
-    //arithmetic to calculate pool number
+    //arithmetic to calculate pool number, entry
+    uint32_t pool_number = (data - NVM_COREMAP_END) / PKMALLOC_POOL_SIZE;
+    uint32_t submap_entry = (data - NVM_COREMAP_END - pool_number * PKMALLOC_POOL_SIZE) / PKMALLOC_SMALL_SIZE;
+    subpool *cur_subpool;
     
-    //jump to pool
-    
+    //scan for pool:
+    for (unsigned i = 0; i < pkmalloc_state.num_small_pools; i++) {
+        if (pkmalloc_state.small_pools[i].pool_number == pool_number) {
+            cur_subpool = &pkmalloc_state.small_pools[i];
+            pool_small_index = i;
+            break;
+        }
+        if (i == pkmalloc_state.num_small_pools) {
+            panic("invalid small free\n");
+        }
+    }
     //jump to offset
+    uint32_t curEntryValue = cur_subpool->subpool_map[submap_entry];
+    uint32_t curEntry = submap_entry;
+    if (curEntryValue == 0) {
+        panic("invalid small free\n");
+    }
     
-    //join metadatas
-        //involves a backwards scan
-    //release "small" lock
+    //Check to the right (if not last entry):
+    if (curEntry + (curEntryValue & freeMask) < small_subpool_entry_count) {
+        uint32_t nextEntryIndex = curEntry + (curEntryValue & takenMask);
+        uint32_t nextEntryValue = cur_subpool->subpool_map[nextEntryIndex];
+        
+        //Free:
+        if (!(nextEntryValue & takenMask)) {
+            //Merge entries into current location
+            cur_subpool->subpool_map[curEntry] += nextEntryValue;
+            cur_subpool->subpool_map[curEntry] &= freeMask;
+            cur_subpool->subpool_map[nextEntryIndex] = 0;
+            
+            
+            //Was cur-entry most recent allocation in most recent pool?
+            if (nextEntryIndex == pkmalloc_state.next_free_small_entry && pool_small_index + 1 == pkmalloc_state.num_small_pools) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_small_entry = curEntry;
+            }
+        }
+        //Alloced:
+            //nothing to do
+    }
+    if (curEntry > 0) {
+        //traverse backwards to find preceeding entry
+        uint32_t traverse = curEntry - 1;
+        
+        //should not overflow
+        while(cur_subpool->subpool_map[traverse] == 0) {
+            traverse -= 1;
+        }
+        uint32_t prevEntryIndex = traverse;
+        uint32_t prevEntryValue = cur_subpool->subpool_map[prevEntryIndex];
+        
+
+        //Free
+        if (!(prevEntryValue & takenMask)) {
+            //Merge entries into left location
+            cur_subpool->subpool_map[prevEntry] = prevEntryValue + (curEntryValue & freeMask);
+            cur_subpool->subpool_map[curEntry] = 0;
+            
+            
+            //Was cur-entry most recent allocation in most recent pool?
+            if (curEntry == pkmalloc_state.next_free_small_entry && pool_small_index + 1 == pkmalloc_state.num_small_pools) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_small_entry = prevEntry;
+            }
+        }
+        //Alloced
+            //Nothing to do.
+    }
     
     __mp_unlock(&pkmalloc_state.small_pools_lock);
 }
 
 //For things "pkmalloc_large_size" to "pkmalloc_pool_size" (exclusive of upper bound)
 void pkfree_medium(void * data) {
+    
+    
+    uint32_t takenMask = 1 << 31; //0b1000000.....
+    uint32_t freeMask = ~takenMask;
+    
+    uint32_t large_subpool_entry_count = (PKMALLOC_POOL_SIZE / PKMALLOC_LARGE_SIZE);
+    uint32_t pool_large_index = 0;
+    
+    
     if (pkmalloc_active != 1) {
-        return
+        return;
     }
     //Grab "large" lock
+    __mp_lock(&pkmalloc_state.large_pools_lock);
     
-    //arithmetic to calculate pool number
+    //arithmetic to calculate pool number, entry
+    uint32_t pool_number = (data - NVM_COREMAP_END) / PKMALLOC_POOL_SIZE;
+    uint32_t submap_entry = (data - NVM_COREMAP_END - pool_number * PKMALLOC_POOL_SIZE) / PKMALLOC_LARGE_SIZE;
+    subpool *cur_subpool;
     
-    //jump to pool
-    
+    //scan for pool:
+    for (unsigned i = 0; i < pkmalloc_state.num_large_pools; i++) {
+        if (pkmalloc_state.large_pools[i].pool_number == pool_number) {
+            cur_subpool = &pkmalloc_state.large_pools[i];
+            pool_large_index = i;
+            break;
+        }
+        if (i == pkmalloc_state.num_large_pools) {
+            panic("invalid large free (pkfree_medium) \n");
+        }
+    }
     //jump to offset
+    uint32_t curEntryValue = cur_subpool->subpool_map[submap_entry];
+    uint32_t curEntry = submap_entry;
+    if (curEntryValue == 0) {
+        panic("invalid large free (pkfree_medium) \n");
+    }
     
-    //join metadatas
-    //involves a backwards scan
-    //release "large" lock
+    //Check to the right (if not last entry):
+    if (curEntry + (curEntryValue & freeMask) < large_subpool_entry_count) {
+        uint32_t nextEntryIndex = curEntry + (curEntryValue & takenMask);
+        uint32_t nextEntryValue = cur_subpool->subpool_map[nextEntryIndex];
+        
+        //Free:
+        if (!(nextEntryValue & takenMask)) {
+            //Merge entries into current location
+            cur_subpool->subpool_map[curEntry] += nextEntryValue;
+            cur_subpool->subpool_map[curEntry] &= freeMask;
+            cur_subpool->subpool_map[nextEntryIndex] = 0;
+            
+            
+            //Was cur-entry most recent allocation in most recent pool?
+            if (nextEntryIndex == pkmalloc_state.next_free_large_entry && pool_large_index + 1 == pkmalloc_state.num_large_pools) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_large_entry = curEntry;
+            }
+        }
+        //Alloced:
+        //nothing to do
+    }
+    if (curEntry > 0) {
+        //traverse backwards to find preceeding entry
+        uint32_t traverse = curEntry - 1;
+        
+        //should not overflow
+        while(cur_subpool->subpool_map[traverse] == 0) {
+            traverse -= 1;
+        }
+        uint32_t prevEntryIndex = traverse;
+        uint32_t prevEntryValue = cur_subpool->subpool_map[prevEntryIndex];
+        
+        
+        //Free
+        if (!(prevEntryValue & takenMask)) {
+            //Merge entries into left location
+            cur_subpool->subpool_map[prevEntry] = prevEntryValue + (curEntryValue & freeMask);
+            cur_subpool->subpool_map[curEntry] = 0;
+            
+            
+            //Was cur-entry most recent allocation in most recent pool?
+            if (curEntry == pkmalloc_state.next_free_large_entry && pool_large_index + 1 == pkmalloc_state.num_large_pools) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_large_entry = prevEntry;
+            }
+        }
+        //Alloced
+        //Nothing to do.
+    }
+    
+    __mp_unlock(&pkmalloc_state.large_pools_lock);
+    
+    
 }
 
 //use when freeing things "pkmalloc_pool_size" or larger
 void pkfree_large(void * data) {
+    uint32_t takenMask = 1 << 31; //0b1000000.....
+    uint32_t freeMask = ~takenMask;
+    
+    uint32_t poolmap_entry_count = PKMALLOC_POOL_NUM;
+    uint32_t pool_top_index = 0;
+    
+    
     if (pkmalloc_active != 1) {
-        return
+        return;
     }
-    //Grab "top" lock
+    //Grab "large" lock
+    __mp_lock(&pkmalloc_state.pool_and_large_list_lock);
     
-    //arithmetic to calculate list entry
+    //arithmetic to calculate pool number, entry
+    uint32_t pool_number = (data - NVM_COREMAP_END) / PKMALLOC_POOL_SIZE;
+    if ((data - NVM_COREMAP_END) % PKMALLOC_POOL_SIZE != 0) {
+        panic("invalid largest free! \n")
+    }
     
+
+    //jump to offset
+    uint32_t curEntryValue = pkmalloc_state.pool_map[pool_number];
+    uint32_t curEntry = pool_number;
+    if (curEntryValue == 0) {
+        panic("invalid largest free! \n");
+    }
     
-    //join metadatas
-    //involves a backwards scan
-    //release "top" lock
+    //Check to the right (if not last entry):
+    if (curEntry + (curEntryValue & freeMask) < poolmap_entry_count) {
+        uint32_t nextEntryIndex = curEntry + (curEntryValue & takenMask);
+        uint32_t nextEntryValue = pkmalloc_state.pool_map[nextEntryIndex];
+        
+        //Free:
+        if (!(nextEntryValue & takenMask)) {
+            //Merge entries into current location
+            pkmalloc_state.pool_map[curEntry] += nextEntryValue;
+            pkmalloc_state.pool_map[curEntry] &= freeMask;
+            pkmalloc_state.pool_map[nextEntryIndex] = 0;
+            
+            
+            //Was cur-entry most recent allocation?
+            if (nextEntryIndex == pkmalloc_state.next_free_pool_map_entry) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_pool_map_entry = curEntry;
+            }
+        }
+        //Alloced:
+        //nothing to do
+    }
+    if (curEntry > 0) {
+        //traverse backwards to find preceeding entry
+        uint32_t traverse = curEntry - 1;
+        
+        //should not overflow
+        while(pkmalloc_state.pool_map[traverse] == 0) {
+            traverse -= 1;
+        }
+        uint32_t prevEntryIndex = traverse;
+        uint32_t prevEntryValue = pkmalloc_state.pool_map[prevEntryIndex];
+        
+        
+        //Free
+        if (!(prevEntryValue & takenMask)) {
+            //Merge entries into left location
+            pkmalloc_state.pool_map[prevEntry] = prevEntryValue + (curEntryValue & freeMask);
+            pkmalloc_state.pool_map[curEntry] = 0;
+            
+            
+            //Was cur-entry most recent allocation?
+            if (curEntry == pkmalloc_state.next_free_pool_map_entry) {
+                //Update next_free_X_entry
+                pkmalloc_state.next_free_pool_map_entry = prevEntry;
+            }
+        }
+        //Alloced
+        //Nothing to do.
+    }
+    
+    __mp_unlock(&pkmalloc_state.pool_and_large_list_lock);
 }
 int pkpersist(unsigned id, void *data, size_t size) {
 
