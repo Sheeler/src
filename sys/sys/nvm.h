@@ -2,10 +2,11 @@
 #define _SYS_NVM_H_
 
 #include <sys/mp_lock.h>
+#include <sys/types.h>
 
 //Everything is assumed to be 64 bit because YOLO!!! :'D
 
-typdef struct pkpersist_struct {
+typedef struct pkpersist_struct {
     size_t data_size; //4bytes or 8bytes.
     void *data;
 } pkpersist_struct;
@@ -40,7 +41,7 @@ typedef struct pkmalloc_state_struct {
 
 
 //These will likely change depending on exact ram stealing scheme.
-#define NVM_SIZE            (8 * (1 << 30)) //8 GB
+#define NVM_SIZE            (8 * ((uint64_t) 1 << 30)) //8 GB
 #define NVM_PAGES           (NVM_SIZE / PAGE_SIZE) //If 8GB is not a multiple of page size your system is fucked up already.
 //#define NVM_START           (4 << 9) //Beginning of 5th physical GB
 void * NVM_START;
